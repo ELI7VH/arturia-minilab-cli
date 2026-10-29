@@ -7,7 +7,8 @@ Center. This programs controller presets; it does not update device firmware.
 
 Requires Python 3, USB MIDI access and a MiniLab 3. Tested on macOS with controller
 firmware **1.2.0.69**. Other firmware can be identified/read, but uploads are refused
-until validated. The supported preset format is **1.2.0**, with all 319 fields.
+until validated. The supported preset format is **1.2.0**, with all 319 fields. Native MCC exports
+with trailing commas and UTF-8 BOMs are accepted; duplicate keys remain refused.
 
 ```sh
 git clone https://github.com/ELI7VH/arturia-minilab-cli.git
@@ -31,11 +32,18 @@ Close MIDI Control Center while uploading. Choose the intended **User slot 1–5
 
 ```sh
 minilab list
+minilab monitor --seconds 30
 minilab backup --slot 1 --out ~/Desktop/user1-before.minilab3
 minilab diff ~/repos/switchblade/controllers/fm1-sb-live.minilab3 --slot 1
 minilab preset upload ~/repos/switchblade/controllers/fm1-sb-live.minilab3 --slot 1 --dry-run
 minilab preset upload ~/repos/switchblade/controllers/fm1-sb-live.minilab3 --slot 1
 ```
+
+`monitor` displays actual incoming notes (with note names), CCs and raw bytes.
+Use it to verify physical controls independently of configuration readback.
+For example, piano B is a `note_on`; CC1 is a separate `control_change`.
+Preset uploads do not set the global keyboard channel. For WaveLoop Switch Blade,
+set the keyboard to channel 16 to follow the selected track; channel 1 plays track 1.
 
 After upload, select that User program on the MiniLab (Shift + Prog if needed).
 The tool preserves its existing name. Native `.minilab3` mapping files do not
@@ -68,13 +76,13 @@ No automatic selection, preset renaming, firmware flashing or MIDI routing daemo
 python3 -m unittest discover -s . -p 'test_*.py' -v
 ```
 
-2026-10-29: identified the connected MiniLab 3 on `Minilab3 MIDI`, firmware1.2.0.69.
+2026-10-29: identified the connected MiniLab 3 on `Minilab3 MIDI`, firmware 1.2.0.69.
 Read all five User slots, 319 fields each, into independent private backups.
-User1 matched the old fm1-sb-live mapping exactly except its four new ADSR CCs.
-CLI upload changed only CC74/71/16/17 to CC73/75/79/72 and verified all319 fields.
+User 1 matched the old fm1-sb-live mapping exactly except its four new ADSR CCs.
+CLI upload changed only CC74/71/16/17 to CC73/75/79/72 and verified all 319 fields.
 Other four slots compared unchanged. Backup/restore/upload round trip and the
-preset-store command were exercised on User1. The CLI leaves User1 with ADSR
-plus the original four master FX. After Elijah unplugged/reconnected the MiniLab, identity and all319 User1 fields
+preset-store command were exercised on User 1. The CLI leaves User 1 with ADSR
+plus the original four master FX. After Elijah unplugged/reconnected the MiniLab, identity and all 319 User 1 fields
 were read again and matched the requested ADSR preset exactly (zero differences).
 Restart persistence is verified. Actual physical knob-emitted MIDI remains a
 separate check. The FM-1 firmware and songs were not touched.
@@ -103,3 +111,9 @@ value for writes. Store uses the same prefix followed by06 and User slot +2.
 Replies must match the full requested address; unrelated/stale MIDI is ignored.
 Parameter319+ and pages outside this preset address space are refused. No
 proprietary Arturia application or resource files are distributed.
+
+Independent audit, 2026-10-29: Arturia MIDI Control Center recalled User 1 into
+its own native template; all 319 fields matched the requested preset, including
+exactly the four intended ADSR CC changes from the original mapping. This checks
+the CLI address interpretation independently. Actual A/B key behavior remains a
+separate raw-MIDI diagnosis. The importer now accepts MCC’s trailing-comma format.

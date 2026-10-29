@@ -67,8 +67,34 @@ def validate_preset(data):
     return data
 
 
+def strip_trailing_commas(text):
+    """MCC emits a comma before the final brace. Preserve strings and error offsets."""
+    out, quoted, escaped = [], False, False
+    for index, char in enumerate(text):
+        if quoted:
+            out.append(char)
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                quoted = False
+        elif char == '"':
+            quoted = True
+            out.append(char)
+        elif char == ',':
+            after = index + 1
+            while after < len(text) and text[after].isspace():
+                after += 1
+            out.append(' ' if after < len(text) and text[after] in '}]' else char)
+        else:
+            out.append(char)
+    return ''.join(out)
+
+
 def load_preset(path):
-    return validate_preset(json.loads(Path(path).read_text(), object_pairs_hook=no_duplicates))
+    text = Path(path).read_text(encoding='utf-8-sig')
+    return validate_preset(json.loads(strip_trailing_commas(text), object_pairs_hook=no_duplicates))
 
 
 def changes(expected, actual):
@@ -214,11 +240,46 @@ def upload(dev, preset, slot, backup_dir, dry_run=False):
     return result
 
 
+def describe_message(message):
+    """Show actual MIDI events independently of the preset's parameter addresses."""
+    if message.type in ('sysex', 'clock', 'active_sensing'):
+        return None
+    data = message.dict()
+    data.pop('time', None)
+    if 'channel' in data:
+        data['channel'] += 1
+    if message.type in ('note_on', 'note_off'):
+        names = ('C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B')
+        data['note_name'] = names[message.note % 12] + str(message.note // 12 - 1)
+        if message.type == 'note_on' and not message.velocity:
+            data['type'] = 'note_off'
+    data['raw_hex'] = ' '.join(f'{byte:02X}' for byte in message.bytes())
+    return data
+
+
+def monitor(dev, seconds):
+    print(f'Listening on {dev.port} for {seconds:g}s; play keys or move controls.', file=sys.stderr, flush=True)
+    end, count = time.monotonic() + seconds, 0
+    try:
+        while time.monotonic() < end:
+            for message in dev.input.iter_pending():
+                event = describe_message(message)
+                if event is not None:
+                    print(json.dumps(event), flush=True)
+                    count += 1
+            time.sleep(.005)
+    except KeyboardInterrupt:
+        pass
+    return {'events': count, 'writes': 'identity query only; no parameter changes'}
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(prog="minilab", description=__doc__)
     parser.add_argument('--port', help='Exact MiniLab 3 MIDI port; automatically selected when unique')
     sub = parser.add_subparsers(dest='command', required=True)
     sub.add_parser('list', help='Detect and identify the connected MiniLab (read only)')
+    mon = sub.add_parser('monitor', help='Display actual notes and CCs, independently of preset readback')
+    mon.add_argument('--seconds', type=float, default=30)
     back = sub.add_parser('backup', help='Export a complete native .minilab3 preset (read only)')
     back.add_argument('--slot', type=int, required=True, choices=range(1, 6))
     back.add_argument('--out', type=Path, required=True)
@@ -234,10 +295,14 @@ def main(argv=None):
     args = parser.parse_args(argv)
     # Reject malformed files before opening any MIDI port.
     data = load_preset(args.file) if hasattr(args, 'file') else None
+    if args.command == 'monitor' and not 0 < args.seconds <= 3600:
+        raise ValueError('Monitor duration must be greater than 0 and at most 3600 seconds')
     dev = MiniLab(args.port)
     try:
         if args.command == 'list':
             result = dev.identity
+        elif args.command == 'monitor':
+            result = monitor(dev, args.seconds)
         elif args.command == 'backup':
             p = save_json(args.out, dev.snapshot(args.slot))
             result = {'slot': args.slot, 'saved': str(p), 'fields': len(KEYS)}

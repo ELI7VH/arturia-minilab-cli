@@ -60,6 +60,22 @@ class ProtocolTests(unittest.TestCase):
             elif mutation == 'missing': del p['33_58']
             else: p['8_0'] = 1
             with self.assertRaises(ValueError): ml.validate_preset(p)
+    def test_real_mcc_trailing_comma_and_bom(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / 'mcc.minilab3'
+            text = json.dumps(preset(), indent=2)
+            p.write_text('\ufeff' + text[:-1].rstrip() + ',\n}', encoding='utf-8')
+            self.assertEqual(ml.load_preset(p), preset())
+    def test_trailing_comma_filter_preserves_strings_and_escapes(self):
+        text = r'{"text":",}","escape":"\\\"", "array":[1,],}'
+        data = json.loads(ml.strip_trailing_commas(text))
+        self.assertEqual(data['text'], ',}')
+        self.assertEqual(data['array'], [1])
+    def test_mcc_style_duplicate_keys_still_refused(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / 'bad.minilab3'
+            p.write_text('{"device":"MiniLab 3","device":"MiniLab 3",}')
+            with self.assertRaises(ValueError): ml.load_preset(p)
     def test_duplicate_json_key(self):
         with tempfile.TemporaryDirectory() as d:
             p = Path(d) / 'bad.json'; p.write_text('{"device":"MiniLab 3","device":"MiniLab 3"}')
@@ -105,6 +121,31 @@ class TransportTests(unittest.TestCase):
             for slot in [0,6,True,1.1]:
                 with self.assertRaises(ValueError): dev.store(slot)
         self.assertEqual(sent, [ml.HEADER+(6,3), ml.HEADER+(6,7)])
+
+
+class MonitorTests(unittest.TestCase):
+    def test_notes_and_cc_are_distinct_without_using_preset_addresses(self):
+        class Message:
+            def __init__(self, kind, data, raw):
+                self.type = kind; self.values = {'type': kind, **data, 'time': 0}; self.raw = raw
+                self.__dict__.update(data)
+            def dict(self): return dict(self.values)
+            def bytes(self): return self.raw
+        note = Message('note_on', {'channel':15,'note':59,'velocity':80}, [159,59,80])
+        event = ml.describe_message(note)
+        self.assertEqual(event['type'], 'note_on'); self.assertEqual(event['note_name'], 'B3')
+        self.assertEqual(event['channel'], 16); self.assertEqual(event['raw_hex'], '9F 3B 50')
+        self.assertNotIn('control', event)
+        cc = Message('control_change', {'channel':15,'control':1,'value':0}, [191,1,0])
+        event = ml.describe_message(cc)
+        self.assertEqual(event['type'], 'control_change'); self.assertEqual(event['control'], 1)
+        self.assertNotIn('note_name', event)
+        self.assertIsNone(ml.describe_message(Message('sysex', {}, [])))
+    def test_invalid_monitor_duration_never_opens_device(self):
+        with patch.object(ml, 'MiniLab') as device:
+            for seconds in ('-1','0','3601','nan'):
+                with self.assertRaises(ValueError): ml.main(['monitor','--seconds',seconds])
+            device.assert_not_called()
 
 
 class UploadTests(unittest.TestCase):
