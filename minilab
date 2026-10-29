@@ -1,0 +1,14 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Resolve launcher symlinks so ~/.local/bin/minilab works too.
+SCRIPT=$0
+while [ -L "$SCRIPT" ]; do
+  SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$SCRIPT")" && pwd)
+  SCRIPT_LINK=$(readlink "$SCRIPT")
+  case "$SCRIPT_LINK" in /*) SCRIPT=$SCRIPT_LINK ;; *) SCRIPT=$SCRIPT_DIR/$SCRIPT_LINK ;; esac
+done
+TOOL_DIR=$(CDPATH= cd -- "$(dirname -- "$SCRIPT")" && pwd)
+if [ -x "$TOOL_DIR/.venv/bin/python" ]; then
+  exec "$TOOL_DIR/.venv/bin/python" "$TOOL_DIR/minilab.py" "$@"
+fi
+exec python3 "$TOOL_DIR/minilab.py" "$@"

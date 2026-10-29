@@ -1,0 +1,18 @@
+{
+  "original_repository": "https://github.com/ELI7VH/lucian-utils",
+  "original_commit": "c6974126850967a3c89056cc300373c80715980c",
+  "original_path": "controller/minilab3",
+  "license": "GPL-3.0-or-later",
+  "protocol_reference": "https://github.com/soyersoyer/sysex-controls/tree/8c090482e3b685d758056c053d3969fabee5d129",
+  "verified_hardware": "MiniLab 3 firmware 1.2.0.69",
+  "hardware_checks": [
+    "all 319 User1 fields read back after upload/store",
+    "backup/restore/upload round trip",
+    "other four User slots unchanged",
+    "all 319 User1 fields matched after user unplug/reconnect"
+  ],
+  "not_verified": [
+    "physical knob MIDI emission",
+    "other MiniLab models or firmware versions"
+  ]
+}
