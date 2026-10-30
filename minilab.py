@@ -189,7 +189,7 @@ class MiniLab:
             raise RuntimeError(f'Parameter {param} readback {actual}, expected {value}')
 
 
-def upload(dev, preset, slot, backup_dir, dry_run=False):
+def upload(dev, preset, slot, backup_dir, dry_run=False, rewrite=False):
     """Validate and save recovery evidence before the first write; verify and roll back failures."""
     validate_preset(preset)
     user_slot(slot)
@@ -197,21 +197,23 @@ def upload(dev, preset, slot, backup_dir, dry_run=False):
         raise ValueError('Uploads currently validated for firmware 1.2.0.69 only; reads remain available')
     before = dev.snapshot(slot)
     diff = changes(preset, before)
+    planned = [(k, before[k], preset[k]) for k in KEYS] if rewrite else diff
     if dry_run:
-        return {'dry_run': True, 'slot': slot, 'changes': diff}
+        return {'dry_run': True, 'slot': slot, 'changes': diff, 'written_fields': len(planned), 'rewrite': rewrite}
     backup_dir = Path(backup_dir).expanduser()
     backup_dir.mkdir(parents=True, exist_ok=False)
     before_path = save_json(backup_dir / 'before.minilab3', before)
     save_json(backup_dir / 'identity.json', dev.identity)
     save_json(backup_dir / 'requested.minilab3', preset)
-    save_json(backup_dir / 'plan.json', {'slot': slot, 'changes': diff,
+    save_json(backup_dir / 'plan.json', {'slot': slot, 'changes': diff, 'rewrite': rewrite,
+        'written_fields': len(planned),
         'before_sha256': hashlib.sha256(before_path.read_bytes()).hexdigest()})
     touched = []
     try:
-        for key, old, new in diff:
+        for key, old, new in planned:
             touched.append((key, old))
             dev.write(slot, int(key.split('_')[1]), new)
-        if diff:
+        if planned:
             dev.store(slot)
         after = dev.snapshot(slot)
         if changes(preset, after):
@@ -232,9 +234,12 @@ def upload(dev, preset, slot, backup_dir, dry_run=False):
             message = f'Rollback incomplete: {rollback_error}. Recovery preset: {before_path}'
         save_json(backup_dir / 'failure.json', {'error': str(error), 'recovery': message})
         raise RuntimeError(f'Upload failed: {error}. {message}') from error
-    result = {'slot': slot, 'changed_fields': len(diff), 'verified_fields': len(KEYS),
+    result = {'slot': slot, 'changed_fields': len(diff), 'written_fields': len(planned),
+              'rewrite': rewrite, 'verified_fields': len(KEYS),
               'backup': str(before_path), 'firmware_update': False,
-              'store_command_sent': bool(diff),
+              'store_command_sent': bool(planned),
+              'active_program_verified': False,
+              'next_action': f'Switch to another program, then select User {slot}; use minilab monitor to verify physical output',
               'verification': 'full slot readback after store; power-cycle persistence requires a separate check'}
     save_json(backup_dir / 'receipt.json', result)
     return result
@@ -292,6 +297,7 @@ def main(argv=None):
     put.add_argument('--slot', type=int, required=True, choices=range(1, 6))
     put.add_argument('--dry-run', action='store_true')
     put.add_argument('--backup-dir', type=Path)
+    put.add_argument('--rewrite', action='store_true', help='Reapply all 319 fields, including matching values')
     args = parser.parse_args(argv)
     # Reject malformed files before opening any MIDI port.
     data = load_preset(args.file) if hasattr(args, 'file') else None
@@ -311,7 +317,7 @@ def main(argv=None):
         else:
             stamp = dt.datetime.now().strftime('%Y%m%d-%H%M%S')
             directory = args.backup_dir or Path.home() / 'Documents' / 'MiniLab Backups' / f'{stamp}-user{args.slot}-{uuid.uuid4().hex[:6]}'
-            result = upload(dev, data, args.slot, directory, args.dry_run)
+            result = upload(dev, data, args.slot, directory, args.dry_run, args.rewrite)
         print(json.dumps(result, indent=2))
         return 0
     finally:

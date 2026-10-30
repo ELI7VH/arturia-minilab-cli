@@ -196,6 +196,43 @@ class UploadTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             with self.assertRaisesRegex(ValueError, 'firmware'): ml.upload(f, preset(), 1, Path(d) / 'backup')
             self.assertEqual(f.writes, [])
+    def test_rewrite_identical_preset_writes_all_fields_then_stores(self):
+        f = Fake()
+        with tempfile.TemporaryDirectory() as d:
+            target = Path(d) / 'backup'
+            original_write = f.write
+            def write(*args):
+                self.assertTrue((target / 'before.minilab3').is_file())
+                original_write(*args)
+            f.write = write
+            r = ml.upload(f, preset(), 1, target, rewrite=True)
+            self.assertEqual(r['changed_fields'], 0)
+            self.assertEqual(r['written_fields'], 319)
+            self.assertEqual(f.writes, [(1, int(k.split('_')[1]), 0) for k in ml.KEYS])
+            self.assertEqual(f.stores, [1])
+            self.assertTrue(r['store_command_sent'])
+            self.assertFalse(r['active_program_verified'])
+            self.assertIn('select User 1', r['next_action'])
+            self.assertEqual(json.loads((target / 'plan.json').read_text())['written_fields'], 319)
+    def test_rewrite_dry_run_has_no_writes_or_files(self):
+        f = Fake()
+        with tempfile.TemporaryDirectory() as d:
+            target = Path(d) / 'backup'
+            r = ml.upload(f, preset(), 1, target, dry_run=True, rewrite=True)
+            self.assertEqual(r['written_fields'], 319)
+            self.assertEqual(f.writes, [])
+            self.assertEqual(f.stores, [])
+            self.assertFalse(target.exists())
+    def test_rewrite_failure_rolls_back_all_touched_fields(self):
+        original = preset(); original['33_58'] = 74
+        f = Fake(original, fail_param=58)
+        with tempfile.TemporaryDirectory() as d:
+            target = Path(d) / 'backup'
+            with self.assertRaisesRegex(RuntimeError, 'Original preset restored'):
+                ml.upload(f, preset(), 1, target, rewrite=True)
+            self.assertEqual(f.data, original)
+            self.assertTrue((target / 'rollback.minilab3').exists())
+            self.assertFalse((target / 'receipt.json').exists())
     def test_unchanged_preset_writes_nothing_but_verifies(self):
         f = Fake()
         with tempfile.TemporaryDirectory() as d:

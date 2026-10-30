@@ -45,13 +45,19 @@ For example, piano B is a `note_on`; CC1 is a separate `control_change`.
 Preset uploads do not set the global keyboard channel. For WaveLoop Switch Blade,
 set the keyboard to channel 16 to follow the selected track; channel 1 plays track 1.
 
-After upload, select that User program on the MiniLab (Shift + Prog if needed).
+After upload, switch to another program, then select the written User program
+on the MiniLab (Shift + Prog if needed). This reloads the stored mapping into the
+active controls. Slot readback does not prove that the active program uses it;
+the receipt reports `active_program_verified: false` and gives the reload step.
+Then use `minilab monitor` while moving the physical controls.
 The tool preserves its existing name. Native `.minilab3` mapping files do not
 contain global keyboard settings or preset names, so those are not part of export.
 
 Every upload saves the original mapping, requested mapping, device identity,
 change plan and hashes in a fresh folder under `~/Documents/MiniLab Backups/`.
-Only changed fields are written. The preset-store command follows, then all
+By default only changed fields are written. Add `--rewrite` to reapply all 319
+fields even when the mapping already matches. It uses the same backup, rollback
+and full verification safeguards. The preset-store command follows, then all
 319 fields are read back. The receipt is written only on success. Existing
 recovery files are never overwritten. Use `--backup-dir /new/folder` to choose
 another recovery destination.
@@ -117,3 +123,15 @@ its own native template; all 319 fields matched the requested preset, including
 exactly the four intended ADSR CC changes from the original mapping. This checks
 the CLI address interpretation independently. Actual A/B key behavior remains a
 separate raw-MIDI diagnosis. The importer now accepts MCC’s trailing-comma format.
+
+
+Live audit, 2026-10-30: backed up all five User slots, then reapplied all 319
+User 1 fields using `--rewrite`, stored and verified. The other slots and global
+keyboard channel remained unchanged. Before the program reload, real knob output
+used a different CC set; after reselecting User 1, the requested eight knob CCs
+and four fader channels were observed on USB and at the FM-1 DIN input. The
+isolated K6 test produced 121 identical Ch16 CC21 messages on USB and DIN, with
+no gaps or other messages. The broader capture had one observer ring-read gap
+during a fast fader burst; it verifies every fader's CC/channel identity, not
+byte-complete DIN delivery for that burst. A/B pitches were captured as notes.
+No synthetic knob events were used to claim physical verification.
